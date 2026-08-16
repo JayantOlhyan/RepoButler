@@ -3,6 +3,7 @@ import prisma from '@/lib/db/prisma';
 import { verifyWebhookSignature } from '@/lib/security/webhooks';
 import { calculateRepositoryHealth } from '@/lib/health/calculator';
 import { updateAttentionItems } from '@/lib/attention/engine';
+import { Clock } from '@/lib/utils/clock';
 
 export async function POST(req: NextRequest) {
   const signature = req.headers.get('x-hub-signature-256') || '';
@@ -35,6 +36,25 @@ export async function POST(req: NextRequest) {
     return new NextResponse('Invalid JSON body', { status: 400 });
   }
 
+  const result = await handleWebhookEvent(eventType, deliveryId, payload);
+  
+  if (result.success) {
+    return new NextResponse('Ok', { status: 200 });
+  } else if (result.reason === 'untracked_repository') {
+    return new NextResponse('Ok (untracked repository)', { status: 200 });
+  } else {
+    return new NextResponse(result.reason || 'Processing failed', { status: 200 });
+  }
+}
+
+/**
+ * Reusable core event pipeline shared between real webhooks and simulator triggers.
+ */
+export async function handleWebhookEvent(
+  eventType: string,
+  deliveryId: string,
+  payload: any
+): Promise<{ success: boolean; reason?: string; repoId?: string }> {
   const repoGithubId = payload.repository?.id;
   const installationId = payload.installation?.id;
 
@@ -42,7 +62,6 @@ export async function POST(req: NextRequest) {
   if (eventType === 'installation') {
     const action = payload.action;
     if (action === 'deleted' && installationId) {
-      // Mark repositories as inactive / uninstall
       try {
         const dbInstallation = await prisma.gitHubInstallation.findUnique({
           where: { githubInstallationId: installationId },
@@ -50,7 +69,7 @@ export async function POST(req: NextRequest) {
         if (dbInstallation) {
           await prisma.repository.updateMany({
             where: { installationId: dbInstallation.id },
-            data: { isArchived: true }, // Or mark inactive
+            data: { isArchived: true },
           });
           console.log(`Uninstalled GitHub App installation ID: ${installationId}`);
         }
@@ -58,11 +77,10 @@ export async function POST(req: NextRequest) {
         console.error('Failed to handle installation deletion:', err);
       }
     }
-    return new NextResponse('Ok', { status: 200 });
+    return { success: true, reason: 'installation_processed' };
   }
 
   if (eventType === 'installation_repositories') {
-    // Repositories added or removed from the App
     const action = payload.action;
     const reposAdded = payload.repositories_added || [];
     const reposRemoved = payload.repositories_removed || [];
@@ -73,7 +91,6 @@ export async function POST(req: NextRequest) {
       });
 
       if (dbInstallation) {
-        // Disable monitoring or remove repositories that were removed
         for (const repo of reposRemoved) {
           await prisma.repository.updateMany({
             where: { githubRepositoryId: repo.id },
@@ -81,7 +98,6 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Add metadata for repositories that were added
         for (const repo of reposAdded) {
           await prisma.repository.upsert({
             where: { githubRepositoryId: repo.id },
@@ -92,11 +108,11 @@ export async function POST(req: NextRequest) {
               owner: payload.repository?.owner?.login || '',
               name: repo.name,
               fullName: repo.full_name,
-              defaultBranch: 'main', // Temporary fallback
+              defaultBranch: 'main',
               isPrivate: repo.private || false,
               isArchived: false,
               htmlUrl: `https://github.com/${repo.full_name}`,
-              githubUpdatedAt: new Date(),
+              githubUpdatedAt: Clock.now(),
               settings: {
                 create: {
                   monitoringEnabled: true,
@@ -112,31 +128,30 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error('Failed to handle installation repositories change:', err);
     }
-    return new NextResponse('Ok', { status: 200 });
+    return { success: true, reason: 'repositories_processed' };
   }
 
-  // 3. Find repository in DB
   if (!repoGithubId) {
-    return new NextResponse('Missing repository context', { status: 200 });
+    return { success: false, reason: 'Missing repository context' };
   }
 
+  // Find repository in DB (can check either standard or simulated)
   const dbRepo = await prisma.repository.findUnique({
     where: { githubRepositoryId: repoGithubId },
   });
 
   if (!dbRepo) {
-    // If we don't monitor this repo, we acknowledge and skip
-    return new NextResponse('Ok (untracked repository)', { status: 200 });
+    return { success: false, reason: 'untracked_repository' };
   }
 
-  // 4. Save Activity Event in DB
+  // Save Activity Event in DB
   await prisma.activityEvent.create({
     data: {
       repositoryId: dbRepo.id,
       githubEventId: deliveryId,
       eventType: eventType.toUpperCase(),
       actorLogin: payload.sender?.login || 'unknown',
-      occurredAt: new Date(),
+      occurredAt: Clock.now(),
       payloadReference: {
         action: payload.action || null,
         ref: payload.ref || null,
@@ -144,7 +159,6 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // 5. Update state asynchronously or synchronously based on complexity
   try {
     if (eventType === 'push') {
       const commits = payload.commits || [];
@@ -180,7 +194,7 @@ export async function POST(req: NextRequest) {
 
       await prisma.repository.update({
         where: { id: dbRepo.id },
-        data: { githubUpdatedAt: new Date() },
+        data: { githubUpdatedAt: Clock.now() },
       });
     }
 
@@ -198,11 +212,11 @@ export async function POST(req: NextRequest) {
           authorLogin: pr.user?.login || 'unknown',
           state: finalState,
           draft: pr.draft || false,
-          createdAt: new Date(pr.created_at),
-          updatedAt: new Date(pr.updated_at),
+          createdAt: new Date(pr.createdAt || pr.created_at),
+          updatedAt: new Date(pr.updatedAt || pr.updated_at),
           mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
           closedAt: pr.closed_at ? new Date(pr.closed_at) : null,
-          lastActivityAt: new Date(pr.updated_at),
+          lastActivityAt: new Date(pr.updatedAt || pr.updated_at),
         },
         create: {
           repositoryId: dbRepo.id,
@@ -212,17 +226,17 @@ export async function POST(req: NextRequest) {
           authorLogin: pr.user?.login || 'unknown',
           state: finalState,
           draft: pr.draft || false,
-          createdAt: new Date(pr.created_at),
-          updatedAt: new Date(pr.updated_at),
+          createdAt: new Date(pr.createdAt || pr.created_at),
+          updatedAt: new Date(pr.updatedAt || pr.updated_at),
           mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
           closedAt: pr.closed_at ? new Date(pr.closed_at) : null,
-          lastActivityAt: new Date(pr.updated_at),
+          lastActivityAt: new Date(pr.updatedAt || pr.updated_at),
         },
       });
 
       await prisma.repository.update({
         where: { id: dbRepo.id },
-        data: { githubUpdatedAt: new Date() },
+        data: { githubUpdatedAt: Clock.now() },
       });
     }
 
@@ -236,10 +250,10 @@ export async function POST(req: NextRequest) {
           title: issue.title,
           state: issue.state.toUpperCase() as 'OPEN' | 'CLOSED',
           authorLogin: issue.user?.login || 'unknown',
-          createdAt: new Date(issue.created_at),
-          updatedAt: new Date(issue.updated_at),
+          createdAt: new Date(issue.createdAt || issue.created_at),
+          updatedAt: new Date(issue.updatedAt || issue.updated_at),
           closedAt: issue.closed_at ? new Date(issue.closed_at) : null,
-          lastActivityAt: new Date(issue.updated_at),
+          lastActivityAt: new Date(issue.updatedAt || issue.updated_at),
         },
         create: {
           repositoryId: dbRepo.id,
@@ -248,16 +262,16 @@ export async function POST(req: NextRequest) {
           title: issue.title,
           state: issue.state.toUpperCase() as 'OPEN' | 'CLOSED',
           authorLogin: issue.user?.login || 'unknown',
-          createdAt: new Date(issue.created_at),
-          updatedAt: new Date(issue.updated_at),
+          createdAt: new Date(issue.createdAt || issue.created_at),
+          updatedAt: new Date(issue.updatedAt || issue.updated_at),
           closedAt: issue.closed_at ? new Date(issue.closed_at) : null,
-          lastActivityAt: new Date(issue.updated_at),
+          lastActivityAt: new Date(issue.updatedAt || issue.updated_at),
         },
       });
 
       await prisma.repository.update({
         where: { id: dbRepo.id },
-        data: { githubUpdatedAt: new Date() },
+        data: { githubUpdatedAt: Clock.now() },
       });
     }
 
@@ -265,7 +279,6 @@ export async function POST(req: NextRequest) {
       const issue = payload.issue;
       const comment = payload.comment;
 
-      // Update last activity on corresponding PR or Issue
       if (issue.pull_request) {
         await prisma.pullRequest.updateMany({
           where: { repositoryId: dbRepo.id, number: issue.number },
@@ -280,7 +293,7 @@ export async function POST(req: NextRequest) {
 
       await prisma.repository.update({
         where: { id: dbRepo.id },
-        data: { githubUpdatedAt: new Date() },
+        data: { githubUpdatedAt: Clock.now() },
       });
     }
 
@@ -294,8 +307,8 @@ export async function POST(req: NextRequest) {
           status: run.status || 'unknown',
           conclusion: run.conclusion || null,
           branch: run.head_branch || 'main',
-          createdAt: new Date(run.created_at),
-          updatedAt: new Date(run.updated_at),
+          createdAt: new Date(run.createdAt || run.created_at),
+          updatedAt: new Date(run.updatedAt || run.updated_at),
           completedAt: run.run_started_at ? new Date(run.run_started_at) : null,
         },
         create: {
@@ -305,8 +318,8 @@ export async function POST(req: NextRequest) {
           status: run.status || 'unknown',
           conclusion: run.conclusion || null,
           branch: run.head_branch || 'main',
-          createdAt: new Date(run.created_at),
-          updatedAt: new Date(run.updated_at),
+          createdAt: new Date(run.createdAt || run.created_at),
+          updatedAt: new Date(run.updatedAt || run.updated_at),
           completedAt: run.run_started_at ? new Date(run.run_started_at) : null,
         },
       });
@@ -320,26 +333,29 @@ export async function POST(req: NextRequest) {
         update: {
           tagName: rel.tag_name,
           name: rel.name || null,
-          publishedAt: new Date(rel.published_at || Date.now()),
+          publishedAt: new Date(rel.published_at || Clock.now().getTime()),
         },
         create: {
           repositoryId: dbRepo.id,
           githubReleaseId: rel.id,
           tagName: rel.tag_name,
           name: rel.name || null,
-          publishedAt: new Date(rel.published_at || Date.now()),
+          publishedAt: new Date(rel.published_at || Clock.now().getTime()),
         },
       });
     }
   } catch (err) {
     console.error(`Error processing webhook contents for ${dbRepo.fullName}:`, err);
+    return { success: false, reason: 'database_error', repoId: dbRepo.id };
   }
 
-  // 6. Recalculate health and attention items in the background
-  // This satisfies the target of returning in <5 seconds.
-  calculateRepositoryHealth(dbRepo.id)
-    .then(() => updateAttentionItems(dbRepo.id))
-    .catch((err) => console.error(`Failed to run background updates for ${dbRepo.fullName}:`, err));
+  // Recalculate health and attention items synchronously for simulator immediate output
+  try {
+    await calculateRepositoryHealth(dbRepo.id);
+    await updateAttentionItems(dbRepo.id);
+  } catch (err) {
+    console.error(`Failed to run health/attention updates for ${dbRepo.fullName}:`, err);
+  }
 
-  return new NextResponse('Ok', { status: 200 });
+  return { success: true, repoId: dbRepo.id };
 }
