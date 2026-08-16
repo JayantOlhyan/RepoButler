@@ -1,36 +1,128 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RepoButler
 
-## Getting Started
+> **Your GitHub repositories have a butler now.**
 
-First, run the development server:
+RepoButler is a personal GitHub assistant that watches a developer's repositories, aggregates cross-repository activity, identifies priorities that deserve attention, detects neglected projects, and delivers a concise Daily Briefing.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+---
+
+## Core Product Vision
+
+RepoButler is designed to answer one question for developers:
+> **"Given everything happening across my repositories, what should I care about right now?"**
+
+### What RepoButler Is
+- **An Attention Engine**: Surfacing failing pipelines, stale PRs, and inactive projects.
+- **A Actionable Health Metric**: A deterministic 0-100 score with full reasons and actions.
+- **A Daily Briefing**: A prioritized, clean daily summary (AI-grounded or templated).
+
+### What RepoButler is NOT
+- A generic analytics dashboard with 40 charts.
+- An AI code-review automation tool.
+- An autonomous coding agent that commits code or opens PRs.
+- A commit streak generator (RepoButler rewards real updates; streaks are excluded).
+
+---
+
+## Technical Architecture
+
+```text
+GitHub webhook (Real-time updates) ──┐
+                                     ├──> Next.js API Routes ──> PostgreSQL (Prisma)
+Octokit REST API (Historical sync) ──┘        │
+                                              ├──> Attention Engine & Health Rules
+                                              └──> Daily Brief (AI Summary / Email)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- **Frontend/Backend**: Next.js (App Router) + TypeScript.
+- **Database**: PostgreSQL with Prisma ORM.
+- **Styling**: Vanilla Tailwind CSS.
+- **CI/Verification**: Vitest for fast, mocked intelligence testing.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Quick Start (Local Setup)
 
-## Learn More
+### 1. Clone & Install
+```bash
+git clone https://github.com/your-username/RepoButler.git
+cd RepoButler
+npm install
+```
 
-To learn more about Next.js, take a look at the following resources:
+### 2. Configure Database
+RepoButler requires **PostgreSQL**. If you are on macOS:
+```bash
+# Install and start PostgreSQL via Homebrew
+brew install postgresql@15
+brew services start postgresql@15
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Create a database named `repobutler` and set the connection string in your `.env`:
+```bash
+cp .env.example .env
+# Edit .env and set:
+# DATABASE_URL="postgresql://postgres:postgres@localhost:5432/repobutler?schema=public"
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Synchronize the database schema and seed the mock data:
+```bash
+npx prisma db push
+npx prisma db seed
+```
+This seeds deterministic mock repositories (`Acme-Web`, `Healthkinator`, `OpenCampus`, `Example-API`) representing healthy, stale, and failing configurations to support **Demo Mode**.
 
-## Deploy on Vercel
+### 3. Start Development Server
+```bash
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) to see RepoButler!
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Demo Mode
+
+To preview the complete visual dashboard experience without connecting real GitHub keys:
+1. Start the server.
+2. Click **View Demo** on the Landing Page or navigate to [http://localhost:3000/dashboard?demo=true](http://localhost:3000/dashboard?demo=true).
+3. The dashboard will load the seeded mock accounts and demonstrate failed CI builds, stale pull requests, and project memories cleanly.
+
+---
+
+## Real GitHub App Integration
+
+To monitor real repositories:
+1. Register a new **GitHub App** in your developer settings.
+2. Configure **Read-only** permissions:
+   - Metadata: Read
+   - Contents: Read
+   - Issues: Read
+   - Pull Requests: Read
+   - Actions/Checks: Read
+3. Set Webhook URLs to your local tunnel (e.g. using `ngrok`, `smee.io`, or `Cloudflare Tunnel`).
+4. Generate a Private Key (PEM format) and copy it along with your App ID, Client ID, Client Secret, and Webhook Secret to your `.env` file.
+5. Launch your tunnel proxy:
+   ```bash
+   # Example using smee
+   smee --url https://smee.io/your-unique-channel --path /api/webhooks --port 3000
+   ```
+6. Open RepoButler, click **Connect GitHub**, sign in, and authorized repositories will start synchronizing automatically!
+
+---
+
+## Running Verification Tests
+We maintain 100% mocked unit tests for the scoring rules, health calculations, and signature verification.
+```bash
+npm run test
+```
+All tests run inside a lightweight Node sandbox context.
+
+---
+
+## Open Source Foundation
+The repository includes standard OSS configurations:
+- [LICENSE](LICENSE) (MIT)
+- [CONTRIBUTING.md](CONTRIBUTING.md) (Contribution rules)
+- [SECURITY.md](SECURITY.md) (Reporting vulnerabilities)
+- [ROADMAP.md](ROADMAP.md) (Future releases)
+- [CHANGELOG.md](CHANGELOG.md) (WIP releases)
