@@ -1,4 +1,5 @@
 import prisma from '../db/prisma';
+import { Clock } from '../utils/clock';
 
 export interface HealthBreakdown {
   score: number;
@@ -28,7 +29,7 @@ export async function calculateRepositoryHealth(repositoryId: string): Promise<H
     throw new Error(`Repository with ID ${repositoryId} not found.`);
   }
 
-  const now = new Date();
+  const now = Clock.now();
   const reasons: string[] = [];
   const recommendations: string[] = [];
 
@@ -59,7 +60,7 @@ export async function calculateRepositoryHealth(repositoryId: string): Promise<H
 
   let prScore = 100;
   if (openPrs.length > 0) {
-    const oneWeekAgo = new Date();
+    const oneWeekAgo = Clock.now();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
     
     const stalePrs = openPrs.filter(pr => pr.lastActivityAt < oneWeekAgo);
@@ -78,7 +79,7 @@ export async function calculateRepositoryHealth(repositoryId: string): Promise<H
 
   let issueScore = 100;
   if (openIssues.length > 0) {
-    const fourteenDaysAgo = new Date();
+    const fourteenDaysAgo = Clock.now();
     fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
     
     const staleIssues = openIssues.filter(issue => issue.lastActivityAt < fourteenDaysAgo);
@@ -91,7 +92,7 @@ export async function calculateRepositoryHealth(repositoryId: string): Promise<H
   }
 
   // 4. Activity (15%)
-  const fourteenDaysAgo = new Date();
+  const fourteenDaysAgo = Clock.now();
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
 
   const recentCommits = await prisma.commit.count({

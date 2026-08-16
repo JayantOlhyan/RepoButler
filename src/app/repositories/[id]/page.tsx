@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import prisma from '@/lib/db/prisma';
 import { getLatestHealthSnapshot, HealthBreakdown } from '@/lib/health/calculator';
+import { Clock as ClockUtil } from '@/lib/utils/clock';
 import {
   ArrowLeft,
   Star,
@@ -222,7 +223,7 @@ export default async function RepositoryDetail(props: PageProps) {
   timeline.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
   // Determine repository overall status
-  const fourteenDaysAgo = new Date();
+  const fourteenDaysAgo = ClockUtil.now();
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
   
   let repoStatus = 'Stable';

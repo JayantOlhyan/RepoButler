@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import prisma from '@/lib/db/prisma';
+import { Clock as ClockUtil } from '@/lib/utils/clock';
 import {
   AlertTriangle,
   CheckCircle,
@@ -86,7 +87,7 @@ export default async function Dashboard(props: PageProps) {
   });
 
   // Calculate greetings based on time
-  const hour = new Date().getHours();
+  const hour = ClockUtil.now().getHours();
   let greeting = 'Good morning';
   if (hour >= 12 && hour < 17) {
     greeting = 'Good afternoon';
@@ -119,7 +120,7 @@ export default async function Dashboard(props: PageProps) {
   let attentionCount = 0;
   let inactiveCount = 0;
 
-  const fourteenDaysAgo = new Date();
+  const fourteenDaysAgo = ClockUtil.now();
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
 
   for (const repo of repositories) {
@@ -160,7 +161,7 @@ export default async function Dashboard(props: PageProps) {
 
   // --- Weekly Momentum Stats ---
   // In a full implementation, we run database aggregates. For MVP, we calculate or mock:
-  const oneWeekAgo = new Date();
+  const oneWeekAgo = ClockUtil.now();
   oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
   const commitsCount = await prisma.commit.count({

@@ -3,6 +3,7 @@ import prisma from '@/lib/db/prisma';
 import { syncRepository } from '@/lib/github/sync';
 import { generateDailyBriefSummary } from '@/lib/ai/provider';
 import { sendEmail } from '@/lib/notifications/email';
+import { Clock } from '@/lib/utils/clock';
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('Authorization');
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const users = await prisma.user.findMany();
-    const today = new Date();
+    const today = Clock.now();
     today.setHours(0, 0, 0, 0);
 
     console.log(`Cron daily-brief started for ${users.length} users`);
@@ -101,7 +102,7 @@ export async function POST(req: NextRequest) {
           summary,
           attentionCount: attentionItems.length,
           repositoriesChanged: reposChangedCount,
-          generatedAt: new Date(),
+          generatedAt: Clock.now(),
         },
         create: {
           userId: user.id,
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
           summary,
           attentionCount: attentionItems.length,
           repositoriesChanged: reposChangedCount,
-          generatedAt: new Date(),
+          generatedAt: Clock.now(),
         },
       });
 

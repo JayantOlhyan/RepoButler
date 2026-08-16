@@ -1,4 +1,5 @@
 import prisma from '../db/prisma';
+import { Clock } from '../utils/clock';
 
 export interface CandidateItem {
   type: 'PR_AWAITING_REVIEW' | 'FAILED_CI' | 'STALE_REPO' | 'STALE_PR' | 'STALE_ISSUE' | 'REPEATED_CI_FAILURE';
@@ -57,7 +58,7 @@ export async function getCandidates(repositoryId: string): Promise<CandidateItem
 
   const settings = repository.settings;
   const candidates: CandidateItem[] = [];
-  const now = new Date();
+  const now = Clock.now();
 
   // Fetch repository relations
   const openPrs = await prisma.pullRequest.findMany({
@@ -134,7 +135,7 @@ export async function getCandidates(repositoryId: string): Promise<CandidateItem
       }
 
       // Check if it failed multiple times in the last 24 hours
-      const oneDayAgo = new Date();
+      const oneDayAgo = Clock.now();
       oneDayAgo.setDate(oneDayAgo.getDate() - 1);
       const failuresLast24h = failureTimes.filter(t => t > oneDayAgo).length;
 
@@ -260,7 +261,7 @@ export async function getCandidates(repositoryId: string): Promise<CandidateItem
  */
 export async function updateAttentionItems(repositoryId: string) {
   const candidates = await getCandidates(repositoryId);
-  const now = new Date();
+  const now = Clock.now();
 
   // Get current active attention items for this repository
   const existingItems = await prisma.attentionItem.findMany({
