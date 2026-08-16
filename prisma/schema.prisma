@@ -1,0 +1,226 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String               @id @default(uuid())
+  githubUserId  Int                  @unique
+  username      String
+  email         String?
+  avatarUrl     String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  installations GitHubInstallation[]
+  dailyBriefs   DailyBrief[]
+}
+
+model GitHubInstallation {
+  id                   String       @id @default(uuid())
+  userId               String
+  user                 User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  githubInstallationId Int          @unique
+  accountLogin         String
+  accountType          String
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  repositories         Repository[]
+}
+
+model Repository {
+  id                 String             @id @default(uuid())
+  installationId     String
+  installation       GitHubInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  githubRepositoryId Int                @unique
+  owner              String
+  name               String
+  fullName           String
+  description        String?
+  defaultBranch      String
+  isPrivate          Boolean
+  isArchived         Boolean
+  htmlUrl            String
+  language           String?
+  stars              Int                @default(0)
+  forks              Int                @default(0)
+  openIssuesCount    Int                @default(0)
+  createdAt          DateTime           @default(now())
+  githubUpdatedAt    DateTime
+  lastSyncedAt       DateTime?
+  
+  settings           RepositorySettings?
+  activityEvents     ActivityEvent[]
+  commits            Commit[]
+  pullRequests       PullRequest[]
+  issues             Issue[]
+  workflowRuns       WorkflowRun[]
+  releases           Release[]
+  healthSnapshots    HealthSnapshot[]
+  attentionItems     AttentionItem[]
+  dailyBriefItems    DailyBriefItem[]
+  projectMemory      ProjectMemory?
+}
+
+model RepositorySettings {
+  id                 String     @id @default(uuid())
+  repositoryId       String     @unique
+  repository         Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  monitoringEnabled  Boolean    @default(true)
+  staleThresholdDays Int        @default(14)
+  dailyBriefEnabled  Boolean    @default(true)
+  healthEnabled      Boolean    @default(true)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+}
+
+model ActivityEvent {
+  id               String     @id @default(uuid())
+  repositoryId     String
+  repository       Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  githubEventId    String     @unique
+  eventType        String
+  actorLogin       String
+  occurredAt       DateTime
+  payloadReference Json?
+  createdAt        DateTime   @default(now())
+}
+
+model Commit {
+  id           String     @id @default(uuid())
+  repositoryId String
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  sha          String     @unique
+  authorLogin  String
+  message      String
+  occurredAt   DateTime
+  isMeaningful Boolean    @default(true)
+}
+
+model PullRequest {
+  id             String     @id @default(uuid())
+  repositoryId   String
+  repository     Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  githubPrId     Int        @unique
+  number         Int
+  title          String
+  authorLogin    String
+  state          String // OPEN, CLOSED, MERGED
+  draft          Boolean    @default(false)
+  createdAt      DateTime
+  updatedAt      DateTime
+  mergedAt       DateTime?
+  closedAt       DateTime?
+  lastActivityAt DateTime   @default(now())
+}
+
+model Issue {
+  id             String     @id @default(uuid())
+  repositoryId   String
+  repository     Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  githubIssueId  Int        @unique
+  number         Int
+  title          String
+  state          String // OPEN, CLOSED
+  authorLogin    String
+  createdAt      DateTime
+  updatedAt      DateTime
+  closedAt       DateTime?
+  lastActivityAt DateTime   @default(now())
+}
+
+model WorkflowRun {
+  id                  String     @id @default(uuid())
+  repositoryId        String
+  repository          Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  githubWorkflowRunId Int        @unique
+  name                String
+  status              String
+  conclusion          String?
+  branch              String
+  createdAt           DateTime
+  updatedAt           DateTime
+  completedAt         DateTime?
+}
+
+model Release {
+  id              String     @id @default(uuid())
+  repositoryId    String
+  repository      Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  githubReleaseId Int        @unique
+  tagName         String
+  name            String?
+  publishedAt     DateTime
+}
+
+model HealthSnapshot {
+  id                 String     @id @default(uuid())
+  repositoryId       String
+  repository         Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  score              Int
+  ciScore            Int
+  activityScore      Int
+  issueScore         Int
+  prScore            Int
+  maintenanceScore   Int
+  documentationScore Int
+  calculatedAt       DateTime   @default(now())
+}
+
+model AttentionItem {
+  id                String           @id @default(uuid())
+  repositoryId      String
+  repository        Repository       @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  type              String // PR_AWAITING_REVIEW, FAILED_CI, STALE_REPO, STALE_PR, STALE_ISSUE, REPEATED_CI_FAILURE, MOMENTUM_LOSS
+  severity          String // CRITICAL, HIGH, MEDIUM, LOW
+  title             String
+  description       String
+  evidence          String
+  recommendedAction String
+  status            String // OPEN, RESOLVED, SNOOZED, DISMISSED
+  createdAt         DateTime         @default(now())
+  resolvedAt        DateTime?
+  expiresAt         DateTime?
+  uniqueKey         String?
+  dailyBriefItems   DailyBriefItem[]
+}
+
+model DailyBrief {
+  id                  String           @id @default(uuid())
+  userId              String
+  user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date                DateTime // Date represented by this brief (e.g. 2026-08-16)
+  summary             String?
+  attentionCount      Int              @default(0)
+  repositoriesChanged Int              @default(0)
+  generatedAt         DateTime         @default(now())
+  items               DailyBriefItem[]
+  
+  @@unique([userId, date])
+}
+
+model DailyBriefItem {
+  id              String         @id @default(uuid())
+  dailyBriefId    String
+  dailyBrief      DailyBrief     @relation(fields: [dailyBriefId], references: [id], onDelete: Cascade)
+  repositoryId    String
+  repository      Repository     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  attentionItemId String?
+  attentionItem   AttentionItem? @relation(fields: [attentionItemId], references: [id], onDelete: SetNull)
+  rank            Int
+  reason          String
+}
+
+model ProjectMemory {
+  id                     String     @id @default(uuid())
+  repositoryId           String     @unique
+  repository             Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  summary                String?
+  currentFocus           String?
+  lastMeaningfulActivity String?
+  unfinishedWork         String?
+  updatedAt              DateTime   @updatedAt
+}
