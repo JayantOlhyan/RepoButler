@@ -37,6 +37,11 @@ export default function Header() {
                 <GitBranch className="h-4 w-4" />
                 Repositories
               </Link>
+              {(process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') && (
+                <Link href="/dev/simulator" className="text-zinc-500 hover:text-zinc-900 dark:hover:text-white flex items-center gap-1 font-semibold text-xs border border-zinc-200 bg-zinc-50/50 px-2 py-0.5 rounded dark:border-zinc-800 dark:bg-zinc-900/30">
+                  Simulator
+                </Link>
+              )}
             </nav>
           )}
         </div>
