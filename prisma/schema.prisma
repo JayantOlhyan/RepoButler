@@ -15,6 +15,7 @@ model User {
   avatarUrl     String?
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
+  isSimulated   Boolean              @default(false)
   installations GitHubInstallation[]
   dailyBriefs   DailyBrief[]
 }
@@ -51,6 +52,7 @@ model Repository {
   createdAt          DateTime           @default(now())
   githubUpdatedAt    DateTime
   lastSyncedAt       DateTime?
+  isSimulated        Boolean            @default(false)
   
   settings           RepositorySettings?
   activityEvents     ActivityEvent[]
@@ -197,6 +199,7 @@ model DailyBrief {
   attentionCount      Int              @default(0)
   repositoriesChanged Int              @default(0)
   generatedAt         DateTime         @default(now())
+  isSimulated         Boolean          @default(false)
   items               DailyBriefItem[]
   
   @@unique([userId, date])
