@@ -7,7 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev:seed": "npx ts-node -O '{\"module\":\"commonjs\"}' scripts/simulate.ts seed",
+    "dev:reset": "npx ts-node -O '{\"module\":\"commonjs\"}' scripts/simulate.ts reset",
+    "dev:simulate": "npx ts-node -O '{\"module\":\"commonjs\"}' scripts/simulate.ts simulate",
+    "dev:brief": "npx ts-node -O '{\"module\":\"commonjs\"}' scripts/simulate.ts brief"
   },
   "dependencies": {
     "@octokit/rest": "^22.0.1",

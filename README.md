@@ -89,6 +89,43 @@ To preview the complete visual dashboard experience without connecting real GitH
 
 ---
 
+## Developer Simulation Environment
+
+RepoButler features a comprehensive **Developer Simulation Environment** that runs the real event processing pipelines locally without communicating with GitHub APIs.
+
+### 1. Enable the Simulator
+Add the following key to your `.env` configuration file:
+```env
+DEV_SIMULATOR_ENABLED=true
+```
+*Note: The simulator is strictly locked to local testing and is automatically disabled in production environments (`NODE_ENV === 'production'`).*
+
+### 2. Run from the Web Control Center
+1. Open [http://localhost:3000/dev/simulator](http://localhost:3000/dev/simulator).
+2. Click **Seed Simulated Repos** to generate the mock developer profile and repositories.
+3. Select a preset scenario (e.g. "Repeated CI Failure") to generate synthetic workflow events and observe changes on repository health.
+4. Click **Generate Daily Brief** to test brief compile pipelines.
+5. Navigate to [http://localhost:3000/dev/webhooks](http://localhost:3000/dev/webhooks) (or click **Inspect Webhooks**) to view captured event headers and raw payloads.
+6. Click **Reset Simulation Data** to wipe all synthetic records.
+
+### 3. Run from the CLI
+We provide dedicated command line controls calling the same underlying services:
+```bash
+# Seed mock repositories
+npm run dev:seed
+
+# Wipe simulation records safely
+npm run dev:reset
+
+# Generate daily briefs on-demand
+npm run dev:brief
+
+# Run a scenario (e.g., repeated-ci-failure, stale-pr, busy-day)
+npm run dev:simulate repeated-ci-failure
+```
+
+---
+
 ## Real GitHub App Integration
 
 To monitor real repositories:
