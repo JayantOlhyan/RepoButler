@@ -1,7 +1,7 @@
 import prisma from '../db/prisma';
 import { Clock } from '../utils/clock';
 import { EventFactory, SimulatedRepositoryMeta } from './event-factory';
-import { handleWebhookEvent } from '../../app/api/webhooks/route';
+import { handleWebhookEvent } from '../webhooks/processor';
 import { seedSimulatedData } from './seed';
 
 export interface ScenarioResult {

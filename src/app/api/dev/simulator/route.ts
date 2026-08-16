@@ -5,7 +5,7 @@ import { seedSimulatedData } from '@/lib/simulator/seed';
 import { resetSimulationData } from '@/lib/simulator/reset';
 import { runScenario } from '@/lib/simulator/scenario-runner';
 import { EventFactory } from '@/lib/simulator/event-factory';
-import { handleWebhookEvent } from '@/app/api/webhooks/route';
+import { handleWebhookEvent } from '@/lib/webhooks/processor';
 import { generateDailyBriefSummary } from '@/lib/ai/provider';
 import { Clock } from '@/lib/utils/clock';
 

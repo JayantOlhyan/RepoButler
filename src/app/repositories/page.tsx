@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
 import { Clock as ClockUtil } from '@/lib/utils/clock';
 import {
@@ -29,49 +29,134 @@ export default async function RepositoriesList(props: PageProps) {
     redirect('/');
   }
 
-  // Determine user to query
-  let dbUser = null;
-  if (isDemo) {
-    dbUser = await prisma.user.findUnique({
-      where: { githubUserId: 999999 },
-    });
-  } else if (session?.user) {
-    const githubUserId = parseInt((session.user as any).id || '', 10);
-    dbUser = await prisma.user.findUnique({
-      where: { githubUserId: isNaN(githubUserId) ? -1 : githubUserId },
-    });
-    if (!dbUser) {
-      dbUser = await prisma.user.findFirst({
-        where: { username: (session.user as any).username || session.user.name || '' },
+  let dbUser: any = null;
+  let repos: any[] = [];
+  let dbFailed = false;
+
+  try {
+    if (isDemo) {
+      dbUser = await prisma.user.findUnique({
+        where: { githubUserId: 999999 },
+      });
+    } else if (session?.user) {
+      const githubUserId = parseInt((session.user as any).id || '', 10);
+      dbUser = await prisma.user.findUnique({
+        where: { githubUserId: isNaN(githubUserId) ? -1 : githubUserId },
+      });
+      if (!dbUser) {
+        dbUser = await prisma.user.findFirst({
+          where: { username: (session.user as any).username || session.user.name || '' },
+        });
+      }
+    }
+
+    if (dbUser) {
+      const installations = await prisma.gitHubInstallation.findMany({
+        where: { userId: dbUser.id },
+      });
+
+      const installationIds = installations.map(i => i.id);
+
+      repos = await prisma.repository.findMany({
+        where: { installationId: { in: installationIds } },
+        include: {
+          settings: true,
+          attentionItems: {
+            where: { status: 'OPEN' },
+          },
+          healthSnapshots: {
+            orderBy: { calculatedAt: 'desc' },
+            take: 1,
+          },
+        },
+        orderBy: { name: 'asc' },
       });
     }
+  } catch (err) {
+    console.warn('Database is offline or not configured. Falling back to in-memory mock dataset.', err);
+    dbFailed = true;
+  }
+
+  if (dbFailed || (!dbUser && isDemo)) {
+    dbUser = {
+      id: 'demo-user-id',
+      username: 'jayantolhyan',
+      email: 'jayant@repobutler.dev',
+      avatarUrl: 'https://avatars.githubusercontent.com/u/999999?v=4',
+    };
+    repos = [
+      {
+        id: 'repo-1',
+        githubRepositoryId: 990001,
+        owner: 'repobutler-sim-developer',
+        name: 'Healthkinator',
+        fullName: 'repobutler-sim-developer/Healthkinator',
+        description: 'Actionable health calculator for remote server node processes.',
+        htmlUrl: 'https://github.com/repobutler-sim-developer/Healthkinator',
+        githubUpdatedAt: ClockUtil.now().toISOString(),
+        settings: { monitoringEnabled: true, staleThresholdDays: 14 },
+        attentionItems: [
+          {
+            id: 'att-1',
+            type: 'FAILED_CI',
+            severity: 'CRITICAL',
+            title: 'Deploy pipeline has failed consecutively (3 times)',
+            description: 'The production deploy workflow has failed on main branch multiple times.',
+            status: 'OPEN',
+          }
+        ],
+        healthSnapshots: [{ score: 32 }],
+      },
+      {
+        id: 'repo-2',
+        githubRepositoryId: 990002,
+        owner: 'repobutler-sim-developer',
+        name: 'Acme-Web',
+        fullName: 'repobutler-sim-developer/Acme-Web',
+        description: 'Landing page and pricing panels for Acme SaaS products.',
+        htmlUrl: 'https://github.com/repobutler-sim-developer/Acme-Web',
+        githubUpdatedAt: ClockUtil.now().toISOString(),
+        settings: { monitoringEnabled: true, staleThresholdDays: 14 },
+        attentionItems: [
+          {
+            id: 'att-2',
+            type: 'STALE_PR',
+            severity: 'HIGH',
+            title: 'Pull Request #84 has been open and inactive for 9 days',
+            description: 'No review or commits have occurred on "docs: update API setup guidelines".',
+            status: 'OPEN',
+          }
+        ],
+        healthSnapshots: [{ score: 68 }],
+      },
+      {
+        id: 'repo-3',
+        githubRepositoryId: 990003,
+        owner: 'repobutler-sim-developer',
+        name: 'OpenCampus',
+        fullName: 'repobutler-sim-developer/OpenCampus',
+        description: 'Open source learning hub software and modules.',
+        htmlUrl: 'https://github.com/repobutler-sim-developer/OpenCampus',
+        githubUpdatedAt: new Date(ClockUtil.now().getTime() - 25 * 24 * 60 * 60 * 1000).toISOString(),
+        settings: { monitoringEnabled: true, staleThresholdDays: 14 },
+        attentionItems: [
+          {
+            id: 'att-3',
+            type: 'STALE_REPO',
+            severity: 'MEDIUM',
+            title: 'Repository has had no activity for 25 days',
+            description: 'No commits, pull requests, or releases have been recorded.',
+            status: 'OPEN',
+          }
+        ],
+        healthSnapshots: [{ score: 45 }],
+      }
+    ];
   }
 
   if (!dbUser) {
     redirect('/');
   }
-
-  // Fetch repositories
-  const installations = await prisma.gitHubInstallation.findMany({
-    where: { userId: dbUser.id },
-  });
-
-  const installationIds = installations.map(i => i.id);
-
-  const repos = await prisma.repository.findMany({
-    where: { installationId: { in: installationIds } },
-    include: {
-      settings: true,
-      attentionItems: {
-        where: { status: 'OPEN' },
-      },
-      healthSnapshots: {
-        orderBy: { calculatedAt: 'desc' },
-        take: 1,
-      },
-    },
-    orderBy: { name: 'asc' },
-  });
 
   // Calculate statuses and apply filters
   const fourteenDaysAgo = ClockUtil.now();
@@ -80,8 +165,8 @@ export default async function RepositoriesList(props: PageProps) {
   const enrichedRepos = repos.map(repo => {
     let status: 'Active' | 'Stable' | 'Attention' | 'Inactive' = 'Stable';
     
-    const hasAttention = repo.attentionItems.some(i => i.severity === 'CRITICAL' || i.severity === 'HIGH');
-    const isStale = repo.attentionItems.some(i => i.type === 'STALE_REPO');
+    const hasAttention = repo.attentionItems.some((i: any) => i.severity === 'CRITICAL' || i.severity === 'HIGH');
+    const isStale = repo.attentionItems.some((i: any) => i.type === 'STALE_REPO');
 
     if (hasAttention) {
       status = 'Attention';
