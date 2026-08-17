@@ -1,7 +1,7 @@
-import prisma from '@/lib/db/prisma';
-import { calculateRepositoryHealth } from '@/lib/health/calculator';
-import { updateAttentionItems } from '@/lib/attention/engine';
-import { Clock } from '@/lib/utils/clock';
+import prisma from '../db/prisma';
+import { calculateRepositoryHealth } from '../health/calculator';
+import { updateAttentionItems } from '../attention/engine';
+import { Clock } from '../utils/clock';
 
 /**
  * Reusable core event pipeline shared between real webhooks and simulator triggers.
