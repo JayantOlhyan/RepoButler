@@ -123,7 +123,7 @@ export async function calculateRepositoryHealth(repositoryId: string): Promise<H
 
   // 6. Documentation (10%)
   // Score is based on presence of a description in the repository metadata
-  let documentationScore = repository.description ? 100 : 50;
+  const documentationScore = repository.description ? 100 : 50;
   if (!repository.description) {
     reasons.push('Repository is missing a description');
     recommendations.push('Add a descriptive summary in GitHub repository settings');

@@ -18,6 +18,7 @@ model User {
   isSimulated   Boolean              @default(false)
   installations GitHubInstallation[]
   dailyBriefs   DailyBrief[]
+  weeklyReports WeeklyReport[]
 }
 
 model GitHubInstallation {
@@ -64,6 +65,7 @@ model Repository {
   healthSnapshots    HealthSnapshot[]
   attentionItems     AttentionItem[]
   dailyBriefItems    DailyBriefItem[]
+  weeklyReportItems  WeeklyReportItem[]
   projectMemory      ProjectMemory?
 }
 
@@ -188,6 +190,7 @@ model AttentionItem {
   expiresAt         DateTime?
   uniqueKey         String?
   dailyBriefItems   DailyBriefItem[]
+  weeklyReportItems WeeklyReportItem[]
 }
 
 model DailyBrief {
@@ -227,3 +230,32 @@ model ProjectMemory {
   unfinishedWork         String?
   updatedAt              DateTime   @updatedAt
 }
+
+model WeeklyReport {
+  id                  String             @id @default(uuid())
+  userId              String
+  user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startDate           DateTime
+  endDate             DateTime
+  summary             String?
+  attentionCount      Int                @default(0)
+  repositoriesChanged Int                @default(0)
+  generatedAt         DateTime           @default(now())
+  isSimulated         Boolean            @default(false)
+  items               WeeklyReportItem[]
+  
+  @@unique([userId, endDate])
+}
+
+model WeeklyReportItem {
+  id              String         @id @default(uuid())
+  weeklyReportId  String
+  weeklyReport    WeeklyReport   @relation(fields: [weeklyReportId], references: [id], onDelete: Cascade)
+  repositoryId    String
+  repository      Repository     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  attentionItemId String?
+  attentionItem   AttentionItem? @relation(fields: [attentionItemId], references: [id], onDelete: SetNull)
+  rank            Int
+  reason          String
+}
+

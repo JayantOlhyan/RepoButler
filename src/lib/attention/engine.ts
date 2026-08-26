@@ -119,7 +119,7 @@ export async function getCandidates(repositoryId: string): Promise<CandidateItem
     if (latestCompletedRun.conclusion !== 'success') {
       // Find how many consecutive failures occurred recently before a success
       let consecutiveFailures = 0;
-      let failureTimes: Date[] = [];
+      const failureTimes: Date[] = [];
       
       for (const r of nameRuns) {
         if (r.status === 'completed') {

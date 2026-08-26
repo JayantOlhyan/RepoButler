@@ -33,8 +33,24 @@ export function getDeterministicDailyBriefSummary(req: AISummaryRequest): string
     .slice(0, 3)
     .map((item) => `${item.title} on ${item.repoName}`)
     .join(', ');
-    
   return `Good morning, ${req.userName}. Today, ${req.repositoriesChanged} repositories changed. You have ${attentionCount} item${attentionCount > 1 ? 's' : ''} requiring attention. Main highlights include: ${highlights}.`;
+}
+
+/**
+ * Deterministic template fallback when AI is disabled or fails for weekly reports.
+ */
+export function getDeterministicWeeklyReportSummary(req: AISummaryRequest): string {
+  const attentionCount = req.attentionItems.length;
+  if (attentionCount === 0) {
+    return `Hello ${req.userName}. Over the past week, ${req.repositoriesChanged} repositories had activity. Everything is in stable health with no pending items requiring attention.`;
+  }
+  
+  const highlights = req.attentionItems
+    .slice(0, 3)
+    .map((item) => `${item.title} on ${item.repoName}`)
+    .join(', ');
+    
+  return `Hello ${req.userName}. Over the past week, ${req.repositoriesChanged} repositories had activity. You currently have ${attentionCount} item${attentionCount > 1 ? 's' : ''} requiring attention. Main highlights include: ${highlights}.`;
 }
 
 /**
@@ -156,6 +172,49 @@ Rules:
   } catch (error) {
     console.error(`AI generation failed for daily brief. Falling back to template. Error:`, error);
     return getDeterministicDailyBriefSummary(req);
+  }
+}
+
+/**
+ * Generates a natural-language weekly summary using the active AI provider, falling back to template text on failures.
+ */
+export async function generateWeeklyReportSummary(req: AISummaryRequest): Promise<string> {
+  const provider = process.env.AI_PROVIDER;
+  const apiKey = process.env.AI_API_KEY || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
+
+  if (!provider || provider === 'none' || !apiKey) {
+    console.log('AI provider is not configured. Falling back to deterministic template.');
+    return getDeterministicWeeklyReportSummary(req);
+  }
+
+  const prompt = `
+You are RepoButler, a calm personal developer assistant.
+Generate a concise, 2-3 sentence overview of this week's GitHub activity for developer ${req.userName}.
+
+Here is the structured repository data for the past 7 days:
+- Repositories changed: ${req.repositoriesChanged}
+- Current attention items: ${req.attentionItems.length}
+${req.attentionItems.map((item, idx) => `- Item ${idx + 1} (${item.severity}): ${item.title} on ${item.repoName}. Description: ${item.description}`).join('\n')}
+
+Rules:
+1. Ground your summary strictly in the provided data.
+2. DO NOT invent repository names, commit counts, issues, or recommendations.
+3. Be professional and calm. Do not shame the user. Focus on the weekly trend.
+4. Keep the output under 80 words.
+  `;
+
+  try {
+    if (provider === 'gemini') {
+      return await callGemini(prompt, apiKey);
+    } else if (provider === 'openai') {
+      return await callOpenAI(prompt, apiKey);
+    } else {
+      console.warn(`Unknown AI provider "${provider}". Falling back to template.`);
+      return getDeterministicWeeklyReportSummary(req);
+    }
+  } catch (error) {
+    console.error(`AI generation failed for weekly report. Falling back to template. Error:`, error);
+    return getDeterministicWeeklyReportSummary(req);
   }
 }
 
