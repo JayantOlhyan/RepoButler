@@ -1,165 +1,219 @@
 # RepoButler
 
-> **Your GitHub repositories have a butler now.**
+> Your GitHub repositories have a butler now.
 
-RepoButler is a personal GitHub assistant that watches a developer's repositories, aggregates cross-repository activity, identifies priorities that deserve attention, detects neglected projects, and delivers a concise Daily Briefing.
+## Overview
+RepoButler is an AI-enhanced personal developer assistant that monitors GitHub repositories, aggregates cross-repository activity, computes actionable health metrics, and surfaces priorities that require developer attention (such as failing pipelines, stale pull requests, and neglected projects). It delivers deterministic health scores and generates concise daily briefings.
 
----
+## Why This Project Exists
+Developers managing multiple repositories often struggle with context switching. Checking 20 repositories one by one for CI failures, stale pull requests, or unaddressed issues is inefficient. RepoButler solves this by providing a unified attention queue, letting developers focus only on what genuinely requires their response.
 
-## Core Product Vision
+## Target Users
+- Open source maintainers managing multiple projects.
+- Solo developers or indie hackers balancing several side projects.
+- Small engineering teams wanting a centralized repository health overview without enterprise-scale noise.
 
-RepoButler is designed to answer one question for developers:
-> **"Given everything happening across my repositories, what should I care about right now?"**
+## Features
 
-### What RepoButler Is
-- **An Attention Engine**: Surfacing failing pipelines, stale PRs, and inactive projects.
-- **A Actionable Health Metric**: A deterministic 0-100 score with full reasons and actions.
-- **A Daily Briefing**: A prioritized, clean daily summary (AI-grounded or templated).
+### Implemented
+- **Attention Queue**: Heuristic rules scan for open PRs awaiting review, stale issues, and consecutive workflow build failures, surfacing them as `AttentionItems`.
+- **Actionable Health Score**: Deterministic 0–100 health scoring based on repository activity, CI stability, PR/Issue resolution times, and documentation. Includes deductions and recommended actions.
+- **Daily Briefing**: A chronological summary of repository activity across the developer's portfolio, delivered as a clean overview.
+- **Weekly Reports**: Weekly summarized reports of repository activity and current attention items.
+- **AI Summarization (Optional)**: Integration with Gemini and OpenAI to generate natural-language daily and weekly briefs, with a deterministic template fallback.
+- **Developer Simulation Environment**: A local, deterministic testing environment to simulate GitHub events (e.g., "Repeated CI Failure") without hitting live GitHub APIs.
+- **Webhook Integration**: Real-time event synchronization via GitHub App webhooks.
 
-### What RepoButler is NOT
-- A generic analytics dashboard with 40 charts.
-- An AI code-review automation tool.
-- An autonomous coding agent that commits code or opens PRs.
-- A commit streak generator (RepoButler rewards real updates; streaks are excluded).
+### Planned / Not Yet Implemented
+- Slack and Discord webhook integrations.
+- RepoButler CLI tool.
+- Multi-account organization permissions.
+- Hosted SaaS features (Stripe integration, hosted cron).
+- Richer project memories grounded in codebase summaries.
+- Email delivery for daily briefs (configuration placeholders exist, but no delivery logic is currently active).
 
----
+## Architecture
 
-## Technical Architecture
-
-```text
-GitHub webhook (Real-time updates) ──┐
-                                     ├──> Next.js API Routes ──> PostgreSQL (Prisma)
-Octokit REST API (Historical sync) ──┘        │
-                                              ├──> Attention Engine & Health Rules
-                                              └──> Daily Brief (AI Summary / Email)
+### High-Level Architecture
+```mermaid
+flowchart TD
+    GitHub[GitHub App Webhooks & Octokit API] --> |Real-time Events & Historical Sync| NextAPI[Next.js API Routes]
+    NextAPI --> WebhookVerify[Webhook Signature Verification]
+    WebhookVerify --> AttentionEngine[Attention Engine & Health Rules]
+    AttentionEngine --> DB[(SQLite / Prisma)]
+    DB --> Dashboard[Next.js App Router Dashboard]
+    DB --> Cron[Cron Jobs]
+    Cron --> AIService[AI Summarization Service]
+    AIService --> |Gemini / OpenAI| DailyBrief[Daily Brief Generation]
 ```
 
-- **Frontend/Backend**: Next.js (App Router) + TypeScript.
-- **Database**: PostgreSQL with Prisma ORM.
-- **Styling**: Vanilla Tailwind CSS.
-- **CI/Verification**: Vitest for fast, mocked intelligence testing.
+### Request Lifecycle (GitHub Webhook)
+```text
+GitHub Webhook (POST /api/webhooks)
+ ↓
+Signature Verification (HMAC SHA-256)
+ ↓
+Event Parsing (Push, PR, Issue, Workflow)
+ ↓
+Prisma DB Update (ActivityEvent, Commit, PR, etc.)
+ ↓
+Trigger Attention Engine Evaluation
+ ↓
+Update Repository Health Snapshot
+```
 
----
+## Tech Stack
+- **Frontend**: Next.js 16.3 (App Router), React 19, Tailwind CSS v4, Lucide React.
+- **Backend**: Next.js API Routes (Node.js runtime).
+- **Database**: SQLite (via Prisma ORM 6.19).
+- **Authentication**: NextAuth.js (v4) with GitHub OAuth.
+- **External Integrations**: `@octokit/rest` for GitHub API, Google Gemini / OpenAI APIs for optional text summarization.
+- **Testing**: Vitest 4.1.
 
-## Quick Start (Local Setup)
+## Repository Structure
+```text
+RepoButler/
+├── prisma/                 # Database schema and seed scripts
+├── scripts/                # Developer simulation & seed execution scripts
+├── src/
+│   ├── app/                # Next.js App Router (Frontend pages & API routes)
+│   │   ├── api/            # API endpoints (Auth, Cron, Webhooks, GitHub setup)
+│   │   └── dashboard/      # Main authenticated user interface
+│   ├── components/         # Reusable React UI components
+│   └── lib/                # Core business logic
+│       ├── ai/             # Gemini/OpenAI integration and deterministic fallbacks
+│       ├── attention/      # Heuristic rules for surfacing priorities
+│       ├── health/         # Repository health scoring algorithms
+│       ├── security/       # Webhook signature validation (HMAC SHA-256)
+│       ├── simulator/      # Mock event generation for local testing
+│       └── webhooks/       # GitHub event parsers and handlers
+├── tests/                  # Unit tests for scoring rules and calculations
+└── ...
+```
+
+## Database (Prisma / SQLite)
+
+RepoButler relies on a relational SQLite schema to track state.
+
+```mermaid
+erDiagram
+    USER ||--o{ GITHUB_INSTALLATION : owns
+    USER ||--o{ DAILY_BRIEF : receives
+    GITHUB_INSTALLATION ||--o{ REPOSITORY : tracks
+    REPOSITORY ||--o{ ACTIVITY_EVENT : logs
+    REPOSITORY ||--o{ ATTENTION_ITEM : generates
+    REPOSITORY ||--o{ HEALTH_SNAPSHOT : records
+    REPOSITORY ||--|| REPOSITORY_SETTINGS : configures
+    ATTENTION_ITEM ||--o{ DAILY_BRIEF_ITEM : referenced_by
+```
+*Key Models:*
+- **Repository**: Core entity tracking GitHub repository metadata.
+- **AttentionItem**: Represents a surfaced priority (e.g., `FAILED_CI`, `STALE_PR`). Has severity and status.
+- **HealthSnapshot**: Point-in-time calculation of repository health metrics (0-100).
+- **ActivityEvent**: Raw or parsed events from GitHub webhooks.
+- **DailyBrief**: Generated summaries for users.
+
+## API Documentation
+
+### Important Endpoints
+- `POST /api/webhooks`: Ingests GitHub webhook events. Requires `x-hub-signature-256` header matching the `GITHUB_WEBHOOK_SECRET`.
+- `GET /api/github/install`: Redirects to the GitHub App installation flow.
+- `GET /api/cron/daily-brief`: Triggered via cron. Generates Daily Briefs for all users based on recent `AttentionItem`s and repository changes. Requires `Authorization: Bearer CRON_SECRET`.
+- `GET /api/cron/weekly-report`: Triggered via cron. Generates weekly summaries. Requires `Authorization: Bearer CRON_SECRET`.
+
+## Authentication & Security
+
+- **Authentication**: Managed via NextAuth.js. Users authenticate exclusively via GitHub OAuth.
+- **Authorization**: Route protection implemented in Next.js layouts (`getServerSession`). Users can only access repositories linked to their GitHub ID.
+- **Webhook Security**: All incoming GitHub webhooks are verified using HMAC SHA-256 signatures (`crypto.timingSafeEqual`) to prevent spoofing.
+- **Secrets Management**: Handled via `.env`.
+
+## Environment Variables
+
+| Variable | Required | Purpose | Example |
+| -------- | -------- | ------- | ------- |
+| `DATABASE_URL` | Yes | SQLite connection string | `file:./dev.db` |
+| `GITHUB_APP_ID` | Yes | GitHub App ID | `123456` |
+| `GITHUB_APP_PRIVATE_KEY` | Yes | RSA private key for GitHub App (PEM format) | `-----BEGIN RSA PRIVATE KEY-----...` |
+| `GITHUB_WEBHOOK_SECRET` | Yes | Secret to verify webhook signatures | `my_secure_webhook_secret` |
+| `NEXTAUTH_SECRET` | Yes | Secret for session encryption | `random_32_char_string` |
+| `NEXTAUTH_URL` | Yes | Canonical URL of the deployment | `http://localhost:3000` |
+| `CRON_SECRET` | Yes | Protection secret for cron API routes | `my_cron_secret` |
+| `AI_PROVIDER` | No | Enables AI summaries (`gemini`, `openai`, `none`) | `gemini` |
+| `AI_API_KEY` | No | API key for the chosen AI provider | `AIzaSy...` |
+| `DEV_SIMULATOR_ENABLED`| No | Enables local mock simulation endpoints | `true` |
+
+*(See `.env.example` for the full list.)*
+
+## Installation & Local Development
+
+### Prerequisites
+- Node.js (v20+ recommended)
+- npm package manager
 
 ### 1. Clone & Install
 ```bash
-git clone https://github.com/your-username/RepoButler.git
+git clone <repository-url>
 cd RepoButler
 npm install
 ```
 
-### 2. Configure Database
-RepoButler requires **PostgreSQL**. If you are on macOS:
-```bash
-# Install and start PostgreSQL via Homebrew
-brew install postgresql@15
-brew services start postgresql@15
-```
-
-Create a database named `repobutler` and set the connection string in your `.env`:
+### 2. Configure Environment
 ```bash
 cp .env.example .env
-# Edit .env and set:
-# DATABASE_URL="postgresql://postgres:postgres@localhost:5432/repobutler?schema=public"
 ```
+*(Update the variables in `.env` based on the table above. If running in Demo Mode, minimal configuration is required.)*
 
-Synchronize the database schema and seed the mock data:
+### 3. Initialize Database
+RepoButler uses SQLite locally.
 ```bash
 npx prisma db push
-npx prisma db seed
+npx prisma generate
 ```
-This seeds deterministic mock repositories (`Acme-Web`, `Healthkinator`, `OpenCampus`, `Example-API`) representing healthy, stale, and failing configurations to support **Demo Mode**.
 
-### 3. Start Development Server
+### 4. Start the Application
 ```bash
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) to see RepoButler!
 
----
+## Demo Mode & Simulation
 
-## Demo Mode
+RepoButler includes a powerful simulation environment for testing without connecting real GitHub APIs.
 
-To preview the complete visual dashboard experience without connecting real GitHub keys:
-1. Start the server.
-2. Click **View Demo** on the Landing Page or navigate to [http://localhost:3000/dashboard?demo=true](http://localhost:3000/dashboard?demo=true).
-3. The dashboard will load the seeded mock accounts and demonstrate failed CI builds, stale pull requests, and project memories cleanly.
-
----
-
-## Developer Simulation Environment
-
-RepoButler features a comprehensive **Developer Simulation Environment** that runs the real event processing pipelines locally without communicating with GitHub APIs.
-
-### 1. Enable the Simulator
-Add the following key to your `.env` configuration file:
-```env
-DEV_SIMULATOR_ENABLED=true
-```
-*Note: The simulator is strictly locked to local testing and is automatically disabled in production environments (`NODE_ENV === 'production'`).*
-
-### 2. Run from the Web Control Center
-1. Open [http://localhost:3000/dev/simulator](http://localhost:3000/dev/simulator).
-2. Click **Seed Simulated Repos** to generate the mock developer profile and repositories.
-3. Select a preset scenario (e.g. "Repeated CI Failure") to generate synthetic workflow events and observe changes on repository health.
-4. Click **Generate Daily Brief** to test brief compile pipelines.
-5. Navigate to [http://localhost:3000/dev/webhooks](http://localhost:3000/dev/webhooks) (or click **Inspect Webhooks**) to view captured event headers and raw payloads.
-6. Click **Reset Simulation Data** to wipe all synthetic records.
-
-### 3. Run from the CLI
-We provide dedicated command line controls calling the same underlying services:
-```bash
-# Seed mock repositories
-npm run dev:seed
-
-# Wipe simulation records safely
-npm run dev:reset
-
-# Generate daily briefs on-demand
-npm run dev:brief
-
-# Run a scenario (e.g., repeated-ci-failure, stale-pr, busy-day)
-npm run dev:simulate repeated-ci-failure
-```
-
----
-
-## Real GitHub App Integration
-
-To monitor real repositories:
-1. Register a new **GitHub App** in your developer settings.
-2. Configure **Read-only** permissions:
-   - Metadata: Read
-   - Contents: Read
-   - Issues: Read
-   - Pull Requests: Read
-   - Actions/Checks: Read
-3. Set Webhook URLs to your local tunnel (e.g. using `ngrok`, `smee.io`, or `Cloudflare Tunnel`).
-4. Generate a Private Key (PEM format) and copy it along with your App ID, Client ID, Client Secret, and Webhook Secret to your `.env` file.
-5. Launch your tunnel proxy:
+### Running Demo Mode
+1. Ensure `DEV_SIMULATOR_ENABLED=true` in `.env`.
+2. Seed the mock database:
    ```bash
-   # Example using smee
-   smee --url https://smee.io/your-unique-channel --path /api/webhooks --port 3000
+   npm run dev:seed
    ```
-6. Open RepoButler, click **Connect GitHub**, sign in, and authorized repositories will start synchronizing automatically!
+3. Start the server (`npm run dev`) and visit `http://localhost:3000/dashboard?demo=true`.
 
----
+### Simulator CLI Commands
+- `npm run dev:seed`: Seeds deterministic mock repositories.
+- `npm run dev:reset`: Wipes simulation data.
+- `npm run dev:brief`: Generates a mock daily brief on-demand.
+- `npm run dev:simulate <scenario>`: Injects mock events (e.g., `npm run dev:simulate repeated-ci-failure`).
 
-## Running Verification Tests
-We maintain 100% mocked unit tests for the scoring rules, health calculations, and signature verification.
+## Testing
+RepoButler uses Vitest for testing its core heuristic rules and health calculations.
 ```bash
 npm run test
 ```
-All tests run inside a lightweight Node sandbox context.
 
----
+## Known Limitations
+- **SQLite Concurrency**: The current implementation uses SQLite, which is excellent for single-tenant or local usage, but will face write-concurrency limitations if deployed for a large number of concurrent users.
+- **AI Fallbacks**: AI summarization is strictly dependent on the provided prompt structure; if the API limits are reached, the system falls back to a deterministic string template, which is functional but less personalized.
+- **No Email Delivery**: The `EMAIL_PROVIDER` variables exist in configuration, but actual email delivery (e.g. Resend) is not yet fully implemented across the notification engine.
 
-## Open Source Foundation
-The repository includes standard OSS configurations:
-- [LICENSE](LICENSE) (MIT)
-- [CONTRIBUTING.md](CONTRIBUTING.md) (Contribution rules)
-- [SECURITY.md](SECURITY.md) (Reporting vulnerabilities)
-- [ROADMAP.md](ROADMAP.md) (Future releases)
-- [CHANGELOG.md](CHANGELOG.md) (WIP releases)
+## Architectural Trade-offs
+- **SQLite vs PostgreSQL**: The project currently relies on SQLite (as verified in Prisma schema) to ensure zero-configuration local setups and easy Demo Mode operation. A migration to PostgreSQL would be required for a multi-tenant SaaS deployment.
+- **Webhooks vs Polling**: The architecture relies on real-time webhooks for updates, preferring immediate state changes over Octokit polling. This saves API rate limits but requires a publicly accessible webhook endpoint (or tunnel like `smee.io`) during local development of real GitHub App integrations.
+
+## Contributing
+1. Fork and clone the repository.
+2. Create a feature branch.
+3. Make your changes and run `npm run lint` and `npm run test`.
+4. Open a Pull Request detailing your changes.
+
+## License
+MIT License.
