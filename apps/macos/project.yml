@@ -1,0 +1,96 @@
+# XcodeGen spec — generates RepoButler.xcodeproj (which is gitignored).
+#   brew install xcodegen && xcodegen generate
+name: RepoButler
+
+options:
+  bundleIdPrefix: com.jayantsolution
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+configFiles:
+  Debug: Configs/Base.xcconfig
+  Release: Configs/Base.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+    DEAD_CODE_STRIPPING: YES
+
+packages:
+  RepoButlerCore:
+    path: Packages/RepoButlerCore
+
+targets:
+  RepoButler:
+    type: application
+    platform: macOS
+    sources:
+      - RepoButler
+      - Shared
+    dependencies:
+      - package: RepoButlerCore
+      - target: RepoButlerWidget
+    info:
+      path: RepoButler/Info.plist
+      properties:
+        CFBundleDisplayName: RepoButler
+        LSUIElement: true # menu bar only, no Dock icon
+        LSApplicationCategoryType: public.app-category.developer-tools
+        AppGroupID: $(TeamIdentifierPrefix)com.jayantsolution.repobutler
+        NSHumanReadableCopyright: "© Jayant Solution. MIT License."
+    entitlements:
+      path: RepoButler/RepoButler.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.application-groups:
+          - $(TeamIdentifierPrefix)com.jayantsolution.repobutler
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jayantsolution.repobutler
+        PRODUCT_NAME: RepoButler
+
+  RepoButlerWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - RepoButlerWidget
+      - Shared
+    dependencies:
+      - package: RepoButlerCore
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    info:
+      path: RepoButlerWidget/Info.plist
+      properties:
+        CFBundleDisplayName: RepoButler
+        AppGroupID: $(TeamIdentifierPrefix)com.jayantsolution.repobutler
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: RepoButlerWidget/RepoButlerWidget.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - $(TeamIdentifierPrefix)com.jayantsolution.repobutler
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jayantsolution.repobutler.widget
+        PRODUCT_NAME: RepoButlerWidget
+        SKIP_INSTALL: YES
+
+schemes:
+  RepoButler:
+    build:
+      targets:
+        RepoButler: all
+    run:
+      config: Debug
+    archive:
+      config: Release
