@@ -30,16 +30,21 @@ Choose the **RepoButler** scheme and press ⌘R. A box icon appears in the menu 
 (there is no Dock icon). It changes to a check when everything is clear, or a warning
 with a count when something needs you. Open Settings, then:
 
-1. **Account:** create a [fine-grained token](https://github.com/settings/personal-access-tokens/new)
-   with read-only access to Metadata, Contents, Issues, Pull requests and Actions, then
-   paste it and click Connect. Organization repos may need the org to approve the token.
+1. **Account:** click **Sign in with GitHub** to authorize RepoButler via GitHub's device flow using a one-time code. Alternatively, you can use a fine-grained personal access token under "Use a personal access token instead".
 2. **Repositories:** your 8 most recently pushed repos are selected automatically. Add or
-   remove any.
+   remove any. If using the GitHub App, grant access to repos at any time via the "Choose Repositories on GitHub" link.
 3. **Widget:** right-click the desktop → Edit Widgets → search "RepoButler".
 
 `DEVELOPMENT_TEAM` is needed because the widget reads the app's data through a shared
 App Group, and macOS only allows that for signed builds. Without it the menu bar app
 still works, but the widget shows "Open RepoButler to connect GitHub".
+
+## Security
+
+- **Token lifetime & secrets**: The GitHub App token does not expire by design. A client-side desktop application cannot securely hold a client secret without leaking it; GitHub requires a client secret to perform user-to-server token refreshes. To protect user security without shipping secrets in the binary, user-to-server token expiration is disabled in the GitHub App settings.
+- **Scope & permissions**: The GitHub App requests only read-only permissions (Actions, Contents, Issues, Metadata, Pull requests). It cannot write, delete, or modify anything in your repositories.
+- **Repository isolation**: The GitHub App only accesses repositories you explicitly select during app installation or authorization.
+- **Revocation**: You can revoke access at any time from your GitHub account under [GitHub Authorized GitHub Apps](https://github.com/settings/apps/authorizations). If access is revoked or the token expires, RepoButler stops polling, clears the stored token from Keychain, and prompts you to sign in again.
 
 ## Tests
 
@@ -105,7 +110,6 @@ CI failure, new PR activity). Snooze hides it for 24 hours regardless.
 
 ## Not built yet
 
-- GitHub sign-in without a token (OAuth device flow; needs a registered OAuth app)
 - AI-written daily briefings (the web app has these)
 - Health history and trends
 - Signed and notarized release builds
