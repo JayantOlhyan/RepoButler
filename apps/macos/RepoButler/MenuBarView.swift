@@ -63,9 +63,15 @@ struct MenuBarView: View {
 
     @ViewBuilder private var content: some View {
         if !model.hasToken {
-            EmptyState(symbol: "key", title: "Connect GitHub",
-                       message: "Add a read-only GitHub token to start watching your repositories.",
-                       action: ("Open Settings", showSettings))
+            if case .error(let message) = model.phase {
+                EmptyState(symbol: "lock.slash", title: "Access Revoked",
+                           message: message,
+                           action: ("Sign in again", showSettings))
+            } else {
+                EmptyState(symbol: "key", title: "Connect GitHub",
+                           message: "Sign in with GitHub to start watching your repositories.",
+                           action: ("Open Settings", showSettings))
+            }
         } else if model.trackedRepos.isEmpty {
             EmptyState(symbol: "tray", title: "No repositories selected",
                        message: "Choose which repositories RepoButler should watch.",

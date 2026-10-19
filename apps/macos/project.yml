@@ -43,7 +43,10 @@ targets:
         LSUIElement: true # menu bar only, no Dock icon
         LSApplicationCategoryType: public.app-category.developer-tools
         AppGroupID: $(TeamIdentifierPrefix)com.jayantsolution.repobutler
+        GitHubClientID: $(GITHUB_CLIENT_ID)
+        GitHubAppSlug: $(GITHUB_APP_SLUG)
         NSHumanReadableCopyright: "© Jayant Solution. MIT License."
+
     entitlements:
       path: RepoButler/RepoButler.entitlements
       properties:

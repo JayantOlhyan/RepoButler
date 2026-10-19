@@ -6,7 +6,7 @@ import ServiceManagement
 import UserNotifications
 import WidgetKit
 
-/// App state: token, tracked repos, polling loop, latest snapshot, dismissals.
+/// App state: token, auth mode, device flow, tracked repos, polling loop, latest snapshot, dismissals.
 @MainActor
 @Observable
 final class AppModel {
@@ -17,9 +17,20 @@ final class AppModel {
         case error(String)
     }
 
+    /// State of the interactive GitHub App device flow.
+    enum DeviceFlowState: Equatable {
+        case idle
+        case requestingCode
+        case awaitingUser(userCode: String, verificationURI: URL)
+        case polling(userCode: String, verificationURI: URL)
+        case error(String)
+    }
+
     // MARK: State
 
     private(set) var phase: Phase = .needsToken
+    private(set) var authMode: AuthMode?
+    private(set) var deviceFlowState: DeviceFlowState = .idle
     private(set) var snapshot: DashboardSnapshot?
     private(set) var viewerLogin: String?
     private(set) var availableRepos: [RepoInfo] = []
@@ -38,6 +49,7 @@ final class AppModel {
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private var client: GitHubClient?
     @ObservationIgnored private var pollTask: Task<Void, Never>?
+    @ObservationIgnored private var deviceFlowTask: Task<Void, Never>?
 
     private enum Key {
         static let tracked = "trackedRepos"
@@ -52,6 +64,24 @@ final class AppModel {
     /// 5 minutes stays far below GitHub's 5,000 requests/hour.
     static let recommendedMaxRepos = 30
 
+    /// GitHub App client ID configured in Info.plist.
+    var clientID: String {
+        Bundle.main.object(forInfoDictionaryKey: "GitHubClientID") as? String ?? ""
+    }
+
+    /// GitHub App slug configured in Info.plist.
+    var appSlug: String {
+        Bundle.main.object(forInfoDictionaryKey: "GitHubAppSlug") as? String ?? ""
+    }
+
+    /// URL to install the GitHub App or configure repositories.
+    var installURL: URL {
+        if !appSlug.isEmpty {
+            return URL(string: "https://github.com/apps/\(appSlug)/installations/new")!
+        }
+        return URL(string: "https://github.com")!
+    }
+
     init() {
         trackedRepos = defaults.stringArray(forKey: Key.tracked) ?? []
         settings = (defaults.data(forKey: Key.settings))
@@ -63,8 +93,9 @@ final class AppModel {
         snapshot = store.load()
         dismissals = store.loadDismissals()
 
-        if let token = Keychain.readToken() {
-            client = GitHubClient(token: token)
+        if let creds = Keychain.readCredentials() {
+            authMode = creds.mode
+            client = GitHubClient(token: creds.token)
             phase = .idle
             startPolling()
         }
@@ -87,17 +118,66 @@ final class AppModel {
 
     var launchAtLogin: Bool { SMAppService.mainApp.status == .enabled }
 
-    // MARK: Account
+    // MARK: Account & Device Flow
 
-    /// Validates the token against GitHub before storing it.
+    /// Begins the GitHub App device authorization flow.
+    func startDeviceFlow() {
+        deviceFlowTask?.cancel()
+        let cid = clientID
+        guard !cid.isEmpty else {
+            deviceFlowState = .error("Missing GitHub Client ID in app configuration.")
+            return
+        }
+
+        deviceFlowState = .requestingCode
+        deviceFlowTask = Task { [weak self] in
+            do {
+                let resp = try await GitHubAuth.requestDeviceCode(clientID: cid)
+                guard !Task.isCancelled else { return }
+
+                self?.deviceFlowState = .awaitingUser(userCode: resp.userCode, verificationURI: resp.verificationURI)
+                // Automatically open verification URI in browser
+                NSWorkspace.shared.open(resp.verificationURI)
+
+                self?.deviceFlowState = .polling(userCode: resp.userCode, verificationURI: resp.verificationURI)
+                let token = try await GitHubAuth.pollForToken(
+                    clientID: cid,
+                    deviceCode: resp.deviceCode,
+                    initialInterval: resp.interval
+                )
+                guard !Task.isCancelled else { return }
+
+                await self?.finishSignIn(token: token, mode: .githubApp)
+            } catch is CancellationError {
+                self?.deviceFlowState = .idle
+            } catch {
+                self?.deviceFlowState = .error(error.localizedDescription)
+            }
+        }
+    }
+
+    func cancelDeviceFlow() {
+        deviceFlowTask?.cancel()
+        deviceFlowTask = nil
+        deviceFlowState = .idle
+    }
+
+    /// Personal Access Token connect flow.
     func connect(token raw: String) async -> String? {
         let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return "Paste a token first." }
+        return await finishSignIn(token: token, mode: .personalToken)
+    }
+
+    @discardableResult
+    private func finishSignIn(token: String, mode: AuthMode) async -> String? {
         let candidate = GitHubClient(token: token)
         do {
             let login = try await candidate.viewerLogin()
-            try Keychain.saveToken(token)
+            try Keychain.saveToken(token, mode: mode)
             client = candidate
+            authMode = mode
+            deviceFlowState = .idle
             setViewer(login)
             phase = .idle
             await loadRepositories()
@@ -112,9 +192,12 @@ final class AppModel {
 
     func signOut() {
         pollTask?.cancel()
-        Keychain.deleteToken()
+        deviceFlowTask?.cancel()
+        deviceFlowState = .idle
+        Keychain.deleteCredentials()
         store.delete()
         client = nil
+        authMode = nil
         snapshot = nil
         dismissals = [:]
         availableRepos = []
@@ -122,6 +205,16 @@ final class AppModel {
         setTrackedRepos([])
         phase = .needsToken
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Clears authentication state on revoked/expired token while keeping last snapshot visible.
+    func handleSessionRevocation() {
+        pollTask?.cancel()
+        Keychain.deleteCredentials()
+        client = nil
+        authMode = nil
+        availableRepos = []
+        phase = .error("GitHub access was revoked or expired. Sign in again.")
     }
 
     private func setViewer(_ login: String?) {
@@ -136,9 +229,17 @@ final class AppModel {
         isLoadingRepos = true
         defer { isLoadingRepos = false }
         do {
-            availableRepos = try await client.listRepositories()
+            if authMode == .githubApp {
+                availableRepos = try await client.listAppInstallationRepositories()
+            } else {
+                availableRepos = try await client.listRepositories()
+            }
         } catch {
-            phase = .error(error.localizedDescription)
+            if (error as? GitHubError) == .unauthorized {
+                handleSessionRevocation()
+            } else {
+                phase = .error(error.localizedDescription)
+            }
         }
     }
 
@@ -158,27 +259,20 @@ final class AppModel {
         setTrackedRepos(Array(picks))
     }
 
-    private func setTrackedRepos(_ repos: [String]) {
-        trackedRepos = repos
-        defaults.set(repos, forKey: Key.tracked)
-        // Drop reports for repos that are no longer tracked.
-        if var snap = snapshot {
-            let keep = Set(repos.map { $0.lowercased() })
-            snap.reports.removeAll { !keep.contains($0.repo.fullName.lowercased()) }
-            snapshot = snap
-            try? store.save(snap)
-            WidgetCenter.shared.reloadAllTimelines()
-        }
+    private func setTrackedRepos(_ list: [String]) {
+        trackedRepos = list
+        defaults.set(list, forKey: Key.tracked)
     }
 
     // MARK: Settings
 
-    func updateSettings(_ new: MonitorSettings) {
-        settings = new
-        if let data = try? JSONEncoder().encode(new) { defaults.set(data, forKey: Key.settings) }
+    func updateSettings(_ next: MonitorSettings) {
+        settings = next
+        if let data = try? JSONEncoder().encode(next) { defaults.set(data, forKey: Key.settings) }
     }
 
     func setPollMinutes(_ minutes: Int) {
+        guard Self.pollChoices.contains(minutes) else { return }
         pollMinutes = minutes
         defaults.set(minutes, forKey: Key.poll)
         startPolling()
@@ -238,10 +332,10 @@ final class AppModel {
             if notificationsEnabled { post(newAlerts) }
         } catch {
             if (error as? GitHubError) == .unauthorized {
-                // Token revoked or expired: stop polling, keep last snapshot visible.
-                pollTask?.cancel()
+                handleSessionRevocation()
+            } else {
+                phase = .error(error.localizedDescription)
             }
-            phase = .error(error.localizedDescription)
         }
     }
 
@@ -262,11 +356,6 @@ final class AppModel {
         persist()
     }
 
-    func open(_ url: URL?) {
-        guard let url else { return }
-        NSWorkspace.shared.open(url)
-    }
-
     private func persist() {
         if let snapshot { try? store.save(snapshot) }
         try? store.saveDismissals(dismissals)
@@ -275,25 +364,45 @@ final class AppModel {
 
     // MARK: Notifications
 
-    func requestNotificationPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            if !granted {
+                Task { @MainActor [weak self] in self?.setNotificationsEnabled(false) }
+            }
+        }
     }
 
     private func post(_ items: [AttentionItem]) {
         guard !items.isEmpty else { return }
         let center = UNUserNotificationCenter.current()
-        // Collapse bursts into one notification.
-        let content = UNMutableNotificationContent()
+
         if items.count == 1, let item = items.first {
-            content.title = item.title
-            content.subtitle = item.repoFullName
-            content.body = item.description
-            if let url = item.url { content.userInfo = ["url": url.absoluteString] }
-        } else {
-            content.title = "\(items.count) repositories need attention"
-            content.body = items.prefix(3).map(\.title).joined(separator: "\n")
+            let content = UNMutableNotificationContent()
+            content.title = "\(item.repoFullName): \(item.title)"
+            content.body = item.evidence
+            content.sound = .default
+            if let url = item.url {
+                content.userInfo = ["url": url.absoluteString]
+            }
+            let req = UNNotificationRequest(identifier: item.id, content: content, trigger: nil)
+            center.add(req)
+            return
         }
-        content.sound = items.contains { $0.severity == .critical } ? .default : nil
-        center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+
+        let worst = items.map(\.severity).max() ?? .high
+        let content = UNMutableNotificationContent()
+        content.title = "RepoButler"
+        let prefix = worst == .critical ? "⚠️ " : ""
+        content.body = "\(prefix)\(items.count) items need your attention across \(Set(items.map(\.repoFullName)).count) repos."
+        content.sound = .default
+        let req = UNNotificationRequest(identifier: "burst-\(Date().timeIntervalSince1970)", content: content, trigger: nil)
+        center.add(req)
+    }
+
+    // MARK: Links
+
+    func open(_ url: URL?) {
+        guard let url else { return }
+        NSWorkspace.shared.open(url)
     }
 }

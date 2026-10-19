@@ -7,4 +7,8 @@
 // The widget and the shared App Group need a signed build. A free Apple ID
 // ("Personal Team") works for running locally.
 
+GITHUB_CLIENT_ID = Iv23________________
+GITHUB_APP_SLUG = ________________
+
 #include? "Local.xcconfig"
+
