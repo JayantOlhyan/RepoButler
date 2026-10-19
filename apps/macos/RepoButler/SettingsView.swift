@@ -112,7 +112,7 @@ private struct AccountTab: View {
             }
             .padding(.vertical, 8)
 
-        case .awaitingUser(let userCode, let verificationURI), .polling(let userCode, let verificationURI):
+        case .polling(let userCode, let verificationURI):
             VStack(alignment: .leading, spacing: 14) {
                 Text("Enter this code on GitHub to authorize RepoButler:")
                     .font(.callout)

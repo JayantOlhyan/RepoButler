@@ -21,7 +21,6 @@ final class AppModel {
     enum DeviceFlowState: Equatable {
         case idle
         case requestingCode
-        case awaitingUser(userCode: String, verificationURI: URL)
         case polling(userCode: String, verificationURI: URL)
         case error(String)
     }
@@ -135,11 +134,10 @@ final class AppModel {
                 let resp = try await GitHubAuth.requestDeviceCode(clientID: cid)
                 guard !Task.isCancelled else { return }
 
-                self?.deviceFlowState = .awaitingUser(userCode: resp.userCode, verificationURI: resp.verificationURI)
-                // Automatically open verification URI in browser
+                // Automatically open verification URI in browser and start polling
                 NSWorkspace.shared.open(resp.verificationURI)
-
                 self?.deviceFlowState = .polling(userCode: resp.userCode, verificationURI: resp.verificationURI)
+
                 let token = try await GitHubAuth.pollForToken(
                     clientID: cid,
                     deviceCode: resp.deviceCode,
@@ -147,7 +145,9 @@ final class AppModel {
                 )
                 guard !Task.isCancelled else { return }
 
-                await self?.finishSignIn(token: token, mode: .githubApp)
+                if let error = await self?.finishSignIn(token: token, mode: .githubApp) {
+                    self?.deviceFlowState = .error(error)
+                }
             } catch is CancellationError {
                 self?.deviceFlowState = .idle
             } catch {
@@ -259,9 +259,17 @@ final class AppModel {
         setTrackedRepos(Array(picks))
     }
 
-    private func setTrackedRepos(_ list: [String]) {
-        trackedRepos = list
-        defaults.set(list, forKey: Key.tracked)
+    private func setTrackedRepos(_ repos: [String]) {
+        trackedRepos = repos
+        defaults.set(repos, forKey: Key.tracked)
+        // Drop reports for repos that are no longer tracked.
+        if var snap = snapshot {
+            let keep = Set(repos.map { $0.lowercased() })
+            snap.reports.removeAll { !keep.contains($0.repo.fullName.lowercased()) }
+            snapshot = snap
+            try? store.save(snap)
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 
     // MARK: Settings
@@ -375,28 +383,19 @@ final class AppModel {
     private func post(_ items: [AttentionItem]) {
         guard !items.isEmpty else { return }
         let center = UNUserNotificationCenter.current()
-
-        if items.count == 1, let item = items.first {
-            let content = UNMutableNotificationContent()
-            content.title = "\(item.repoFullName): \(item.title)"
-            content.body = item.evidence
-            content.sound = .default
-            if let url = item.url {
-                content.userInfo = ["url": url.absoluteString]
-            }
-            let req = UNNotificationRequest(identifier: item.id, content: content, trigger: nil)
-            center.add(req)
-            return
-        }
-
-        let worst = items.map(\.severity).max() ?? .high
+        // Collapse bursts into one notification.
         let content = UNMutableNotificationContent()
-        content.title = "RepoButler"
-        let prefix = worst == .critical ? "⚠️ " : ""
-        content.body = "\(prefix)\(items.count) items need your attention across \(Set(items.map(\.repoFullName)).count) repos."
-        content.sound = .default
-        let req = UNNotificationRequest(identifier: "burst-\(Date().timeIntervalSince1970)", content: content, trigger: nil)
-        center.add(req)
+        if items.count == 1, let item = items.first {
+            content.title = item.title
+            content.subtitle = item.repoFullName
+            content.body = item.description
+            if let url = item.url { content.userInfo = ["url": url.absoluteString] }
+        } else {
+            content.title = "\(items.count) repositories need attention"
+            content.body = items.prefix(3).map(\.title).joined(separator: "\n")
+        }
+        content.sound = items.contains { $0.severity == .critical } ? .default : nil
+        center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 
     // MARK: Links
