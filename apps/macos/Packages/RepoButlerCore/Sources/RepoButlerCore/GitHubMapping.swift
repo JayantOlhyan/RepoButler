@@ -117,4 +117,19 @@ enum GitHubMapping {
                         latestRelease: latestRelease, recentCommits: commitInfos,
                         lastMergedPullRequestAt: lastMerged, lastClosedIssueAt: lastClosedIssue)
     }
+
+    struct InstallationDTO: Decodable {
+        let id: Int
+    }
+
+    struct InstallationsResponseDTO: Decodable {
+        let totalCount: Int
+        let installations: [InstallationDTO]
+    }
+
+    struct InstallationReposResponseDTO: Decodable {
+        let totalCount: Int
+        let repositories: [RepoDTO]
+    }
 }
+

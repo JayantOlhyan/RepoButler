@@ -68,6 +68,12 @@ public actor GitHubClient {
 
     /// Returns the body, or nil when the status is listed in `nilOn` (e.g. 404 for "no release").
     func get(_ path: String, query: [String: String] = [:], nilOn: Set<Int> = []) async throws -> Data? {
+        let (data, _) = try await getWithResponse(path, query: query, nilOn: nilOn)
+        return data
+    }
+
+    /// Performs a GET request, returning both body and HTTP response (e.g. for reading Link headers).
+    func getWithResponse(_ path: String, query: [String: String] = [:], nilOn: Set<Int> = []) async throws -> (Data?, HTTPURLResponse) {
         var components = URLComponents(url: Self.apiBase.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty {
             components.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
@@ -107,10 +113,10 @@ public actor GitHubClient {
             if let etag = response.value(forHTTPHeaderField: "ETag") {
                 etagCache[cacheKey] = (etag, data)
             }
-            return data
+            return (data, response)
         case 304:
             guard let cached = etagCache[cacheKey] else { throw GitHubError.http(status: 304, path: path) }
-            return cached.body
+            return (cached.body, response)
         case 401:
             throw GitHubError.unauthorized
         case 403, 429:
@@ -118,10 +124,10 @@ public actor GitHubClient {
                 || response.value(forHTTPHeaderField: "retry-after") != nil {
                 throw GitHubError.rateLimited(resetAt: rateLimitResetAt)
             }
-            if nilOn.contains(response.statusCode) { return nil }
+            if nilOn.contains(response.statusCode) { return (nil, response) }
             throw GitHubError.http(status: response.statusCode, path: path)
         default:
-            if nilOn.contains(response.statusCode) { return nil }
+            if nilOn.contains(response.statusCode) { return (nil, response) }
             if response.statusCode == 404 { throw GitHubError.notFound(path) }
             throw GitHubError.http(status: response.statusCode, path: path)
         }
@@ -139,7 +145,7 @@ public actor GitHubClient {
         return try decode(GitHubMapping.UserDTO.self, data, path: "user").login
     }
 
-    /// Repositories the signed-in user owns or collaborates on, most recently pushed first.
+    /// Repositories the signed-in user owns or collaborates on, most recently pushed first (PAT flow).
     public func listRepositories(maxPages: Int = 3) async throws -> [RepoInfo] {
         var all: [RepoInfo] = []
         for page in 1...maxPages {
@@ -153,6 +159,78 @@ public actor GitHubClient {
         }
         return all
     }
+
+    /// Fetches all installations accessible to this user access token, paginating through all pages.
+    func listInstallations() async throws -> [GitHubMapping.InstallationDTO] {
+        var installations: [GitHubMapping.InstallationDTO] = []
+        var page = 1
+        while true {
+            let (data, response) = try await getWithResponse("user/installations", query: [
+                "per_page": "100",
+                "page": String(page)
+            ])
+            guard let data else { break }
+            let dto = try decode(GitHubMapping.InstallationsResponseDTO.self, data, path: "user/installations")
+            installations.append(contentsOf: dto.installations)
+
+            if !Self.hasNextPage(response: response, fetchedCount: dto.installations.count) {
+                break
+            }
+            page += 1
+        }
+        return installations
+    }
+
+    /// Lists repositories accessible via GitHub App installations (paginating installations & repos, de-duplicating).
+    public func listAppInstallationRepositories() async throws -> [RepoInfo] {
+        let installations = try await listInstallations()
+        guard !installations.isEmpty else { return [] }
+
+        var seenIDs = Set<Int>()
+        var results: [RepoInfo] = []
+
+        for installation in installations {
+            var page = 1
+            while true {
+                let path = "user/installations/\(installation.id)/repositories"
+                let (data, response) = try await getWithResponse(path, query: [
+                    "per_page": "100",
+                    "page": String(page)
+                ])
+                guard let data else { break }
+                let dto = try decode(GitHubMapping.InstallationReposResponseDTO.self, data, path: path)
+                for repoDTO in dto.repositories {
+                    if seenIDs.insert(repoDTO.id).inserted {
+                        results.append(repoDTO.model)
+                    }
+                }
+
+                if !Self.hasNextPage(response: response, fetchedCount: dto.repositories.count) {
+                    break
+                }
+                page += 1
+            }
+        }
+
+        // Sort by pushed_at descending (nulls last)
+        return results.sorted { lhs, rhs in
+            switch (lhs.pushedAt, rhs.pushedAt) {
+            case let (l?, r?): return l > r
+            case (_?, nil): return true
+            case (nil, _?): return false
+            case (nil, nil): return lhs.fullName < rhs.fullName
+            }
+        }
+    }
+
+    /// Checks if a Link header or batch count indicates a next page.
+    static func hasNextPage(response: HTTPURLResponse, fetchedCount: Int) -> Bool {
+        if let linkHeader = response.value(forHTTPHeaderField: "Link") {
+            return linkHeader.contains("rel=\"next\"")
+        }
+        return fetchedCount >= 100
+    }
+
 
     /// Fetches everything the rules need for one repo (7 requests, mostly 304s after the first sync).
     public func fetchRepoData(fullName: String) async throws -> RepoData {

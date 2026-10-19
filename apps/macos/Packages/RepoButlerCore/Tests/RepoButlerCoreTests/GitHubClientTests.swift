@@ -167,4 +167,60 @@ final class GitHubClientTests: XCTestCase {
             XCTAssertEqual(error as? GitHubError, .unauthorized)
         }
     }
+
+    func testListAppInstallationRepositoriesWithMultipleInstallationsAndPagination() async throws {
+        let t = FakeTransport()
+        // Page 1 of installations has 1 installation (id 101) and Link rel="next"
+        t.on("/user/installations", query: "page=1", status: 200,
+             body: #"{"total_count": 2, "installations": [{"id": 101}]}"#,
+             headers: ["Link": #"<https://api.github.com/user/installations?per_page=100&page=2>; rel="next""#])
+
+        // Page 2 of installations has 1 installation (id 202) and no next link
+        t.on("/user/installations", query: "page=2", status: 200,
+             body: #"{"total_count": 2, "installations": [{"id": 202}]}"#)
+
+        // Installation 101: page 1 has repo 1 and next link
+        let repo1JSON = """
+        {"id": 1, "name": "repo-one", "full_name": "org1/repo-one", "owner": {"login": "org1"}, "description": null,
+         "html_url": "https://github.com/org1/repo-one", "private": true, "archived": false, "fork": false,
+         "default_branch": "main", "pushed_at": "2026-10-05T12:00:00Z"}
+        """
+        let repo2JSON = """
+        {"id": 2, "name": "repo-two", "full_name": "org1/repo-two", "owner": {"login": "org1"}, "description": null,
+         "html_url": "https://github.com/org1/repo-two", "private": false, "archived": false, "fork": false,
+         "default_branch": "main", "pushed_at": "2026-10-10T12:00:00Z"}
+        """
+        t.on("/user/installations/101/repositories", query: "page=1", status: 200,
+             body: "{\"total_count\": 2, \"repositories\": [\(repo1JSON)]}",
+             headers: ["Link": #"<https://api.github.com/user/installations/101/repositories?per_page=100&page=2>; rel="next""#])
+        t.on("/user/installations/101/repositories", query: "page=2", status: 200,
+             body: "{\"total_count\": 2, \"repositories\": [\(repo2JSON)]}")
+
+        // Installation 202: page 1 has duplicate repo 2 (e.g. shared repo) and unique repo 3
+        let repo3JSON = """
+        {"id": 3, "name": "repo-three", "full_name": "user/repo-three", "owner": {"login": "user"}, "description": null,
+         "html_url": "https://github.com/user/repo-three", "private": true, "archived": false, "fork": false,
+         "default_branch": "main", "pushed_at": "2026-10-01T12:00:00Z"}
+        """
+        t.on("/user/installations/202/repositories", query: "page=1", status: 200,
+             body: "{\"total_count\": 2, \"repositories\": [\(repo2JSON), \(repo3JSON)]}")
+
+        let client = GitHubClient(token: "app-token", transport: t)
+        let repos = try await client.listAppInstallationRepositories()
+
+        // 3 unique repositories de-duplicated by ID (1, 2, 3), sorted by pushedAt descending
+        XCTAssertEqual(repos.count, 3)
+        XCTAssertEqual(repos.map(\.id), [2, 1, 3])
+        XCTAssertEqual(repos.map(\.fullName), ["org1/repo-two", "org1/repo-one", "user/repo-three"])
+    }
+
+    func testListAppInstallationRepositoriesReturnsEmptyWhenNoInstallations() async throws {
+        let t = FakeTransport()
+        t.on("/user/installations", status: 200, body: #"{"total_count": 0, "installations": []}"#)
+
+        let client = GitHubClient(token: "app-token", transport: t)
+        let repos = try await client.listAppInstallationRepositories()
+        XCTAssertTrue(repos.isEmpty)
+    }
 }
+
