@@ -1,27 +1,21 @@
 # RepoButler Roadmap
 
-## MVP v0.1 (Current)
-- [x] Next.js 16 + Tailwind CSS framework initialization.
-- [x] User registration with GitHub OAuth and App Callback setup.
-- [x] Deterministic scoring for stale PRs, stale issues, and failing builds.
-- [x] Actions run repeated failure identification and deduplication.
-- [x] Responsive layout with worth-your-attention cards, daily stats, and momentum lists.
-- [x] Actionable health breakdown (reasons + improvements).
-- [x] Mock database seed script backing isolated Demo Mode.
-- [x] 100% mocked Vitest test coverage on rules and calculations.
+## Current Status
+- **Mac App (v0.1)**: In dogfooding. Native macOS menu bar application with desktop widget, attention tracking, GitHub App device flow authentication, and local notifications.
+- **Web App**: In development only (production build failing; known bugs tracked separately).
 
-## v0.2
-- [ ] Slack and Discord webhook integrations.
-- [ ] Richer project memories (grounded in codebase summaries).
-- [ ] Local scheduling daemon improvements for self-hosting.
-- [ ] Weekly summarized reports.
+## Next
+- [ ] 7-day dogfood, then decide.
 
-## v0.3
-- [ ] RepoButler CLI tool.
-- [ ] GitHub action runner.
-- [ ] Multi-account organization permissions.
-
-## SaaS Hosted
-- [ ] Stripe subscription invoicing.
-- [ ] Hosted cron and continuous indexing.
-- [ ] Premium dashboards and historical analytics.
+## Ideas — not committed, pending validation
+- [ ] Slack and Discord webhook integrations
+- [ ] Richer project memories (grounded in codebase summaries)
+- [ ] Local scheduling daemon improvements for self-hosting
+- [ ] Weekly summarized reports
+- [ ] RepoButler CLI tool
+- [ ] GitHub Action runner
+- [ ] Multi-account organization permissions
+- [ ] PostgreSQL migration
+- [ ] Stripe subscription invoicing
+- [ ] Hosted cron and continuous indexing
+- [ ] Premium dashboards and historical analytics
