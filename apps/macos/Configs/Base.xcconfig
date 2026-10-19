@@ -7,8 +7,8 @@
 // The widget and the shared App Group need a signed build. A free Apple ID
 // ("Personal Team") works for running locally.
 
-GITHUB_CLIENT_ID = Iv23________________
-GITHUB_APP_SLUG = ________________
+GITHUB_CLIENT_ID = Iv23lifKHE2bTMHA7SHV
+GITHUB_APP_SLUG = repobutler-for-mac
 
 #include? "Local.xcconfig"
 
