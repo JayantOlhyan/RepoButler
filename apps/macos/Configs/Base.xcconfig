@@ -1,0 +1,10 @@
+// Shared build settings. Your Apple Developer Team ID goes in Local.xcconfig
+// (gitignored), so it never ends up in the public repo:
+//
+//   cp Configs/Local.xcconfig.example Configs/Local.xcconfig
+//   then set DEVELOPMENT_TEAM = <your 10-character Team ID>
+//
+// The widget and the shared App Group need a signed build. A free Apple ID
+// ("Personal Team") works for running locally.
+
+#include? "Local.xcconfig"

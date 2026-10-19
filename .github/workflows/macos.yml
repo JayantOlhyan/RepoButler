@@ -1,0 +1,34 @@
+name: macOS app
+
+on:
+  push:
+    paths: ["apps/macos/**", ".github/workflows/macos.yml"]
+  pull_request:
+    paths: ["apps/macos/**", ".github/workflows/macos.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: apps/macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Core tests (rules, GitHub client, triage)
+        working-directory: apps/macos/Packages/RepoButlerCore
+        run: swift test
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build app + widget (unsigned)
+        run: |
+          xcodebuild -project RepoButler.xcodeproj -scheme RepoButler -configuration Debug \
+            -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build | tail -n 40
+          exit ${PIPESTATUS[0]}
