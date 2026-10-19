@@ -96,7 +96,8 @@ budget.
 
 **Notifications.** You're notified only when a High or Critical item first appears or
 gets more severe, never on the first sync after install. Bursts are collapsed into one
-notification.
+notification, and sound plays only when an item is Critical. If system notification permission
+is denied by the user, notifications are automatically toggled off in settings.
 
 **Dismiss vs. snooze.** Dismiss hides an item until something new happens to it (another
 CI failure, new PR activity). Snooze hides it for 24 hours regardless.
